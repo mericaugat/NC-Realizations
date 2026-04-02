@@ -778,8 +778,8 @@ function recip(L::NCDescriptorRealization)
     Ainv = [dirsum(L.A[ii]*(id(size(L.A[1])[1]) - (L.b*Ki)*L.c'), zeros(BigInt,(mm,mm))) + 
       utdirsum(L.A[ii], zeros(BigInt,(mm,mm)), (L.A[ii]*L.b)*Ki)
       for ii in 1:length(L.A)]
-    binv = vcat(0*L.b, ones(BigInt,(mm,mm)))
-    cinv = vcat(-Ki*L.c, Ki*ones(BigInt,(mm,mm)))
+    binv = vcat(0*L.b, id(mm))
+    cinv = vcat(-L.c*adjoint(Ki), adjoint(Ki))
     return NCDescriptorRealization(Ainv, binv, cinv)
   end
 end
@@ -855,7 +855,34 @@ end
 
 
 
+function eval(L::NCDescriptorRealization)
+  return X -> eval(L,X)
+end
 
+#=
+  Evaluates a NCDescriptorRealization at the tuple X
+  Throws an error if there is a dimension mismatch, or the pencil is singular
+=#
+function eval(L::NCDescriptorRealization, X)
+  if length(X) != length(L.A)
+    throw(
+      ArgumentError("The evaluation term must be a vector of the same length as A")
+    )
+  end
+  if length(size(X[1])) == 0
+    mm = 1
+  else
+    mm = size(X[1])[1]
+  end
+  nn = size(L.A[1])[1]
+  pen = id(nn*mm) - sum([kron(L.A[ii], X[ii]) for ii in 1:length(L.A)])
+  if det(pen) == 0
+    throw(
+      ArgumentError("The realization is singular at the provided point")
+    )  
+  end
+  return kron(L.c,id(mm))'*inv(pen)*kron(L.b,id(mm))
+end
 
 
 #=
