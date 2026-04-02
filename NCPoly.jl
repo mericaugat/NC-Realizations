@@ -1,5 +1,6 @@
 using LinearAlgebra
 
+#I was originally going to try and make NC Rationals, inversion height spooked me
 abstract type NCPolyRat end
 
 mutable struct NCPoly <: NCPolyRat
@@ -41,7 +42,9 @@ function make_poly(vars, constant, poly) :: NCPoly
 
     return NCPoly(vars, constant, terms)
 end
-        
+
+
+
 function printPoly(p::NCPoly)
     if iszero(length(keys(p.poly)))
         return string(p.constant)
@@ -78,6 +81,10 @@ function printPoly(p::NCPoly)
 
 end
 
+
+#=
+    Old stuff
+=#
 function find_chains(word::String)
 
     index_list = []
@@ -135,6 +142,10 @@ function find_chains(word::String)
 
 end
 
+
+#=
+    Old stuff
+=#
 function compress(word::String)
     chains = find_chains(word)
     new_word = ""
@@ -160,6 +171,10 @@ function compress(word::String)
     return new_word
 end
 
+
+#=
+    Old stuff
+=#
 function expand(word::String)
 
     chunks = collect(split(word, "^"))
@@ -183,6 +198,15 @@ function expand(word::String)
 end
 
 
+
+
+#=
+    Gives all the words appearing in NCPoly
+    These are automatically filtered for 0 coefficients at creation
+=#
+function words_in_poly(pp::NCPoly)
+    return sort(collect(keys(pp.poly)))
+end
 
 
 
@@ -361,6 +385,9 @@ function NCPolynomial_from_String(poly::String, forcerational = false)
 end
 
 
+#=
+
+=#
 
 
 
@@ -443,7 +470,7 @@ end
 
 
 import Base.*
-function *(p::NCPoly, q::NCPoly)::NCPoly
+function *(p::NCPoly, q::NCPoly)
 
     all_symbols = union(p.vars, q.vars)
     p_non_const = collect(keys(p.poly))
@@ -457,9 +484,13 @@ function *(p::NCPoly, q::NCPoly)::NCPoly
     pcterms = Dict()
     cqterms = Dict()
 
+    #Fixed a dumb error here!
     for (p_mono, q_mono) in all_terms
-        pqterms[[p_mono...,q_mono...]] = get(p.poly, p_mono, zc) * get(q.poly, q_mono, zc)
+        pqterms[[p_mono...,q_mono...]] = 
+            get(pqterms, [p_mono...,q_mono...], zc) + 
+            get(p.poly, p_mono, zc) * get(q.poly, q_mono, zc)
     end
+
 
     for q_mono in keys(q.poly)
         cqterms[q_mono] = p.constant * get(q.poly, q_mono, zc)
@@ -544,15 +575,18 @@ end
 
 
 #=
-    Kind of a garbage bin struct
+    Kind of a garbage struct
     Just use it for generating a basis then jamming it into a couple functions
+    TODO: Remove this
 =#
 mutable struct basis_struct 
     vars :: Array{String}
     elements :: Array{Array{String}}
 end
 
-
+#=
+    This does all the work, basis_struct is a barely used stand-in
+=#
 function generate_basis(alphabet, degree)
     if degree == 0
         return basis_struct(alphabet, [])
@@ -575,7 +609,7 @@ end
 
 #=
     Some polynomial generation nonsense, it jams stuff through the monomial ordering
-    so make sure you know exactly which spots on the vector you want
+    so make sure you know exactly which spots in the vector you want
 =#
 function poly_from_vec(coefvec , basis :: basis_struct) :: NCPoly
     if length(coefvec) == 0

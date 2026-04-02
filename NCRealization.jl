@@ -368,6 +368,10 @@ end
   If W = V, then for any word w with length n+2, w = uv, |v| = n+1, so that A^w = A^u*A^v*b, and since A^v*b is in V, it is equal to a linear combination of words with length less than n+1, so by multiplying by A^u, we push into W, which is simply V.
 
   That is, if the rank doesn't change after multiplying by all the words of a certain length, it is stuck, so we can bail out!
+  
+
+  I made this slightly more efficient by combining it with the observable_space function
+  together they are in conobs_space
 =#
 function controllable_space(LL::NCDescriptorRealization)
   nn = size(LL.A[1])[1]
@@ -410,20 +414,28 @@ function conobs_space(LL::NCDescriptorRealization)
   rk1 = 0
   rk2 = 0
   ii = 1
-  rankchanged = true
+  rankchanged1 = true
+  rankchanged2 = true
   oldrk1 = 0
   oldrk2 = 0
-  while ii <= nn && !(rk1 >= nn && rk2 >= nn) && rankchanged == true 
+  while ii <= nn && !(rk1 >= nn && rk2 >= nn) && (rankchanged1 || rankchanged2)
     mp = [prod(LL.A[w]) for w in int_words(length(LL.A), ii)]
     mpa = map(adjoint, mp)
-    pAb = ran(hcat(pAb, hcat([Aw*LL.b for Aw in mp]...)))
-    pAc = ran(hcat(pAb, hcat([Aw*LL.c for Aw in mpa]...)))
+    if rankchanged1
+      pAb = ran(hcat(pAb, hcat([Aw*LL.b for Aw in mp]...)))
+    end
+    if rankchanged2
+      pAc = ran(hcat(pAc, hcat([Aw*LL.c for Aw in mpa]...)))
+    end
     oldrk1 = rk1
     oldrk2 = rk2
     rk1 = size(pAb)[2]
     rk2 = size(pAc)[2]
-    if rk1 == oldrk1 && rk2 == oldrk2
-      rankchanged = false
+    if rk1 == oldrk1
+      rankchanged1 = false
+    end
+    if rk2 == oldrk2
+      rankchanged2 = false
     end
     ii += 1
   end
@@ -457,7 +469,7 @@ function GramSchmidt(mat_vecs::AbstractMatrix; IP::Function = dot, onorm::Bool =
   if !onorm
     return hcat(orth...)
   else
-    return hcat([oo/sqrt(IP(bas,bas)) for oo in orth]...)
+    return hcat([oo/sqrt(IP(oo,oo)) for oo in orth]...)
   end
 
 end
@@ -490,7 +502,7 @@ end
 
 
 #=
-  WARNING: Because this code is spaghetti, I require that A is in some sort of RCEF
+  WARNING: Because this code is spaghetti, I require that A is in some sort of RCEF (reduced column echelon form)
   Because I generate vectors that are outside of the space by looking for zero rows
   or non-pivot entries, and then generating the appropriate number of new vectors from there.
   For example,
@@ -533,6 +545,9 @@ end
 =#
 function nullspace(A::AbstractMatrix)
   numcols = size(A)[2]
+  if iszero(A)
+    return id(numcols)
+  end
   A,piv = rref_with_pivots(A)
   zerorows = setdiff(collect(1:numcols), piv)
   #zerorows = [i for (i,r) in enumerate(eachrow(rref(A'))) if iszero(r)]
@@ -601,7 +616,7 @@ end
 
 #=
   Continuing the spaghetti:
-  The minimal space is defined as M = CS⊖ (OS^⊥ ∩ CS)
+  The minimal space is defined as M = CS ⊖ (OS^⊥ ∩ CS)
   or equivalently, M = CS ∩ (OS + CS^⊥), who knows what is most efficient
 
   With the fixing of my nullspace algorithm, I have updated this to:
@@ -620,12 +635,24 @@ end
   Finally, this function takes a descriptor realization L and spits out a minimal realization with the same transfer function
 
   Because I am a masochist and don't want to take square roots ever, we can't always find an orthonormal basis for our minimal space M
-  However, M*inv(M'*M) is almost correct
+  We get around this by noting that if P is the matrix resulting from the minimal space
+  computation (so its columns are a basis for M), then X = P*inv(P'P)P' is the
+    **Orthongal Projection Matrix** onto the space M
+  So, to get c'A[1]A[2]b, we use c'XA[1]XA[2]Xb, which we attain by putting the right things
+  onto A,b,c. 
+
+  Namely, A~ -> P'A(P*inv(P'P)), b~ -> P'b, and c~ -> (P*inv(P'P))'c
+  So then
+  (c~)'(A~[1])(A~[2])(b~) 
+    = c'P*inv(P'P)P'A[1](P*inv(P'P))P'A[2]P*inv(P'P)P'b
+    = c'XA[1]XA[2]Xb
+    = c'A[1]A[2]b
+  where the last equality uses the fact minimality of the space M (that is, M is the image of A onto b, with the parts taken out that are orthogonal to c')
 =#
 function minimalDescriptorRealization(LL::NCDescriptorRealization) :: NCDescriptorRealization
   M = minimal_space(LL)
-  Mnorm = M*inv(M'*M)
-  return NCDescriptorRealization([Mnorm'*A*M for A in LL.A], M'*LL.b, Mnorm'*LL.c)
+  Mpre = M*inv(M'*M)
+  return NCDescriptorRealization([M'*A*Mpre for A in LL.A], M'*LL.b, Mpre'*LL.c)
 end
 
 #=
@@ -715,7 +742,7 @@ function *(L1::NCDescriptorRealization, L2::NCDescriptorRealization)
   else
     Aprod = [dirsum(L1.A[ii], L2.A[ii]) + utdirsum(L1.A[ii], L2.A[ii], L1.A[ii]*L1.b*adjoint(L2.c)) for ii in 1:length(L1.A)]
     bprod = vcat(0*L1.b, L2.b)
-    cprod = vcat(L1.c, (adjoint(L1.c)*L1.b)*L2.c)
+    cprod = vcat(L1.c, L2.c*(adjoint(L1.b)*L1.c))
     return NCDescriptorRealization(Aprod, bprod, cprod)
   end
 end
@@ -774,7 +801,7 @@ end
 #=
   Takes an NCPoly and spits out the realization for it, not minimal
 =#
-function poly_realization(pp::NCPoly)
+function poly_realization_OLD(pp::NCPoly)
   nv = length(pp.vars)
   mm,nn = size(pp.constant)
   vp = reshape(vec_from_poly(pp), (length(vec_from_poly(pp)),1))
@@ -782,14 +809,46 @@ function poly_realization(pp::NCPoly)
   return NCDescriptorRealization(bs, vp, elvec(1,length(vp),true))
 end
 
+function scalar_poly_to_matrix(pp::NCPoly)
+  tempd = Dict()
+  if length(size(pp.constant)) == 0
+    [get!(tempd, ww, [get(pp.poly,ww,0);;]) for ww in words_in_poly(pp)]
+    return NCPoly(pp.vars, [pp.constant;;], tempd)
+  elseif length(size(pp.constant)) == 1
+    mm = size(pp.constant)[1]
+    [get!(tempd, ww, reshape(get(pp.poly,ww,0), (mm,1))) for ww in words_in_poly(pp)]
+    return NCPoly(pp.vars, reshape([pp.constant;;],(mm,1)), tempd)
+  else
+    return pp
+  end
+end
+
+
+#=
+  Takes an NCPoly and spits out the realization for it, not minimal
+=#
+function poly_realization(qq::NCPoly)
+  pp = scalar_poly_to_matrix(qq)
+  nv = length(pp.vars)
+  mm,nn = size(pp.constant)  
+  vp = vec_from_poly(pp)
+  vpl = length(vp)
+  bb = hcat([
+    vcat([[vec_from_poly(pp)[ii][jj,kk] for ii in 1:vpl] for jj in 1:mm]...)
+     for kk in 1:nn]...)
+  cc = kron(id(mm), elvec(1,vpl))
+  bs = [kron(id(mm), back_right_shift_matrix(ii, nv, deg(pp))) for ii in 1:nv]
+  return NCDescriptorRealization(bs,bb,cc)
+end
+
 
 #=
   You feed this thing a realization and a maxdegree, and it returns a vector of the power series coefficients up to the maxdegree
 =#
 function realization_coefficients(LL::NCDescriptorRealization, maxdegree)
-  coef_vec = [dot(LL.c, LL.b)]
+  coef_vec = [LL.c'*LL.b]
   for ii in 1:maxdegree
-    append!(coef_vec, [dot(LL.c, prod(LL.A[w]), LL.b) for w in int_words(length(LL.A), ii)])
+    append!(coef_vec, [LL.c'*(prod(LL.A[w])*LL.b) for w in sort(int_words(length(LL.A), ii))])
   end
   return coef_vec
 end
