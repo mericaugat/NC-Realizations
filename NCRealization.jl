@@ -181,6 +181,16 @@ function NCDescriptorRealization(
 end
 
 
+
+function NCDescriptorRealization(
+  coef_vec::Vector,
+  vars::Vector{String},
+  minimal::Bool = true,
+)
+  return mdr(poly_realization(poly_from_vec(coef_vec, vars)))
+end
+
+
 #=
   The easy direction to convert from Descriptor to FM
 =#
@@ -842,6 +852,10 @@ function poly_realization(qq::NCPoly)
 end
 
 
+
+
+
+
 #=
   You feed this thing a realization and a maxdegree, and it returns a vector of the power series coefficients up to the maxdegree
 =#
@@ -882,6 +896,47 @@ function eval(L::NCDescriptorRealization, X)
     )  
   end
   return kron(L.c,id(mm))'*inv(pen)*kron(L.b,id(mm))
+end
+
+#=
+  A quick spot check for taking the inner product of two NC rationals in the Fock space
+  We require that the joint spectral radius of the matrix tuple to be less than 1
+=#
+function JSR(AA)
+  f64 = x -> Float64(x,RoundDown)
+  AF = [map(f64, A) for A in AA]
+  return maximum(map(abs,eigvals(sum([kron(A,conj(A)) for A in AF]))))
+end
+
+
+
+
+function vectorize(mat::AbstractArray, columnvec = true)
+  mm,nn = size(mat)
+  if columnvec
+    return reshape(mat,(mm*nn,1)) 
+  else
+    return reshape(mat',(1,mm*nn)) 
+  end
+end
+
+#=
+  If we have realizations (A1,b1,c1) and (A2,b2,c2) both in the Fock space (so JSR < 1 for both)
+  For a monomial w, the coefficients are c1'(A1^w)b1 and c2'(A2^w)b2
+  So if we assume they have matrix coefficients, their inner product is 
+  tr((c2'(A2^w)b2)'c1'(A1^w)b1)
+
+  We invoke a row vectorization identity:
+  ver(AXB) = ver(X)kron(A^T, B)
+  so that 
+  ver[(c2'(A2^w)b2)'c1'(A1^w)b1] = ver[id]*kron(conj(c2)'conj(A2)^w*conj(b2), c1'(A1^w)b1 )
+  So we can evaluate the realization (conj(A2),conj(b2),conj(c2)) at (A1,b1,c1)
+  mutliply on the left by kron(id, c1') and on the right by kron(id, b1)
+  then we multiply on the left by ver(id) and on the right by vec(id) but we simplify
+  and just multiply on the left by ver(c1') and on the right by vec(b1)
+=#
+function inner_product(L1::NCDescriptorRealization, L2::NCDescriptorRealization)
+  return vectorize(L1.c',false)*eval(NCDescriptorRealization(conj(L2.A),conj(L2.b),conj(L2.c)), L1.A)*vectorize(L1.b)
 end
 
 

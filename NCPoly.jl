@@ -395,9 +395,10 @@ function inner_product(p::NCPoly, q::NCPoly)
 
     common_terms = intersect(keys(p.poly), keys(q.poly))
 
-    inner_prod = sum([get(p.poly, monomial, 0) * get(q.poly, monomial, 0) for monomial in common_terms])
+    inner_prod = sum([get(p.poly, monomial, 0) * get(q.poly, monomial, 0)' for monomial in common_terms])
+    inner_prod += p.constant * (q.constant)'
 
-    return inner_prod
+    return tr(inner_prod)
 end
 
 
@@ -589,7 +590,7 @@ end
 =#
 function generate_basis(alphabet, degree)
     if degree == 0
-        return basis_struct(alphabet, [])
+        return (alphabet, [])
     else
         basis = [[]]
         for ii in 1:degree
@@ -603,7 +604,7 @@ function generate_basis(alphabet, degree)
             permutedims(collect(Iterators.product(ntuple(_ -> alphabet, ii)...)),(ii:-1:1))
             append!(basis, [[bb...] for bb in preb])
         end
-        basis_struct(alphabet, basis)
+        return (alphabet, basis)
     end
 end
 
@@ -611,18 +612,18 @@ end
     Some polynomial generation nonsense, it jams stuff through the monomial ordering
     so make sure you know exactly which spots in the vector you want
 =#
-function poly_from_vec(coefvec , basis :: basis_struct) :: NCPoly
+function poly_from_vec(coefvec , vars::Vector{String}, mons::Vector{Vector{Any}}) :: NCPoly
     if length(coefvec) == 0
-        return NCPoly(basis.vars, 0, Dict())
+        return NCPoly(vars, 0, Dict())
     elseif length(coefvec) == 1
-        return NCPoly(basis.vars, arr[1], Dict())
+        return NCPoly(vars, arr[1], Dict())
     else
-        pairing = zip(coefvec[2:end], basis.elements[2:end])
+        pairing = zip(coefvec[2:end], mons[2:end])
         terms = Dict()
         for (coeff, monomial) in pairing
             terms[monomial] = coeff
         end
-        return NCPoly(basis.vars, coefvec[1], terms)
+        return NCPoly(vars, coefvec[1], terms)
     end
 
 end
@@ -638,9 +639,13 @@ end
 function poly_from_vec(coefvec , vars :: Vector{String}) :: NCPoly
     vars = unique(vars)
     dd = length(vars)
-    mm = Int64(floor(log(dd,(length(coefvec)-1)*(dd-1)+1)))
-    basis = generate_basis(vars, mm)
-    return poly_from_vec(coefvec, basis)
+    if dd == 1
+        mm = length(coefvec)
+    else
+        mm = Int64(floor(log(dd,(length(coefvec)-1)*(dd-1)+1)))
+    end
+    (vars, mons) = generate_basis(vars, mm)
+    return poly_from_vec(coefvec, vars, mons)
 end
 
 
@@ -651,8 +656,8 @@ function vec_from_poly(p :: NCPoly, pad::Int64 = 0)
     if length(collect(keys(p.poly))) == 0
         return vcat([p.constant], fill(0*p.constant, pad))[1:maximum([pad,1])]
     end
-    basis = generate_basis(p.vars, maximum(map(length,collect(keys(p.poly)))))
-    vec = [get(p.poly, word , 0*p.constant) for word in basis.elements]
+    (vars,mons) = generate_basis(p.vars, maximum(map(length,collect(keys(p.poly)))))
+    vec = [get(p.poly, word , 0*p.constant) for word in mons]
     vec[1] = p.constant
     return vcat(vec, fill(0*p.constant, pad))[1:maximum([pad,length(vec)])]
 
