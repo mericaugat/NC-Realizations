@@ -936,7 +936,12 @@ end
   and just multiply on the left by ver(c1') and on the right by vec(b1)
 =#
 function inner_product(L1::NCDescriptorRealization, L2::NCDescriptorRealization)
-  return vectorize(L1.c',false)*eval(NCDescriptorRealization(conj(L2.A),conj(L2.b),conj(L2.c)), L1.A)*vectorize(L1.b)
+  if JSR(L1.A) >= 1 || JSR(L2.A) >= 1
+    throw(
+      ArgumentError("At least one of the realizations has a joint spectral radius >= 1")
+    )
+  end
+  return (vectorize(L1.c',false)*eval(NCDescriptorRealization(conj(L2.A),conj(L2.b),conj(L2.c)), L1.A)*vectorize(L1.b))[1]
 end
 
 
